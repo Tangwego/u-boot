@@ -4,6 +4,7 @@
  * EXT4 filesystem implementation in Uboot by
  * Uma Shankar <uma.shankar@samsung.com>
  * Manjunatha C Achar <a.manjunatha@samsung.com>
+ * Wavin Don <de1653267893@foxmail.com>
  *
  * ext4ls and ext4load : Based on ext2 ls and load support in Uboot.
  *		       Ext4 read optimization taken from Open-Moko
@@ -1037,17 +1038,48 @@ fail:
 	return -1;
 }
 
+int ext4fs_write_append(const char *fname, char *buffer,
+		 unsigned long sizebytes, int type)
+{
+	int ret;
+	loff_t size = sizebytes;
+	char *real_buffer;
+	if (ext4fs_exists(fname)) {
+		loff_t actread = 0;
+		ret = ext4fs_size(fname, &size);
+		if (ret) goto end;
+		real_buffer = zalloc(sizebytes + size);
+		ret = ext4_read_file(fname, real_buffer, 0, size, &actread);
+		if (ret) goto end;
+		if (actread != size) {
+			ret = -1;
+			goto end;
+		}
+		memcpy(real_buffer + size, buffer, sizebytes);
+		size = size + sizebytes;
+	} else {
+		real_buffer = buffer;
+	}
+	ret = ext4fs_write(fname, real_buffer, size, FILETYPE_REG);
+end:
+	free(real_buffer);
+	return ret;
+}
+
 int ext4_write_file(const char *filename, void *buf, loff_t offset,
 		    loff_t len, loff_t *actwrite)
 {
 	int ret;
 
-	if (offset != 0) {
-		printf("** Cannot support non-zero offset **\n");
+	if (offset == -1) {
+		ret = ext4fs_write_append(filename, buf, len, FILETYPE_REG);
+	} else if (offset == 0) {
+		ret = ext4fs_write(filename, buf, len, FILETYPE_REG);
+	} else {
+		printf("** Cannot support non-minus-one and non-zero offset **\n");
 		return -1;
 	}
 
-	ret = ext4fs_write(filename, buf, len, FILETYPE_REG);
 	if (ret) {
 		printf("** Error ext4fs_write() **\n");
 		goto fail;
